@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thực hành: Đọc biểu đồ khí hậu - Trạm Láng (Hà Nội) | Tổ 1</title>
+  <!-- Google Fonts hỗ trợ tiếng Việt đầy đủ -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Montserrat:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --bg-dark: #071324;
+      --bg-panel: rgba(13, 30, 54, 0.78);
+      --bg-card: rgba(255, 255, 255, 0.06);
+      --border-glass: rgba(255, 255, 255, 0.14);
+      --blue-primary: #38bdf8;
+      --blue-deep: #0284c7;
+      --warm-orange: #fb923c;
+      --warm-red: #f43f5e;
+      --warm-yellow: #facc15;
+      --green-nature: #34d399;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --font-display: 'Montserrat', sans-serif;
+      --font-body: 'Be Vietnam Pro', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #030914;
+      color: var(--text-main);
+      font-family: var(--font-body);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+
+    /* Khung trình chiếu chuẩn 16:9 co giãn thông minh */
+    #presentation-wrapper {
+      position: relative;
+      width: 100vw;
+      height: 56.25vw; /* 16:9 */
+      max-height: 100vh;
+      max-width: 177.78vh; /* 16:9 */
+      background: radial-gradient(circle at 20% 20%, #0f294a 0%, #071324 55%, #040b16 100%);
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(56, 189, 248, 0.2);
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    /* Lưới tọa độ khí tượng nền */
+    .meteo-grid-bg {
+      position: absolute;
+      inset: 0;
+      background-image: 
+        linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Thanh tiến trình trên cùng */
+    #top-progress-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--blue-primary), var(--green-nature), var(--warm-orange));
+      width: 6.66%;
+      transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 100;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.8);
+    }
+
+    /* Header cố định tinh tế */
+    .slide-top-bar {
+      position: absolute;
+      top: 16px;
+      left: 32px;
+      right: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 50;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .station-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid var(--border-glass);
+      padding: 5px 12px;
+      border-radius: 999px;
+      backdrop-filter: blur(8px);
+      color: #e2e8f0;
+      font-weight: 500;
+    }
+
+    .station-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green-nature);
+      box-shadow: 0 0 8px var(--green-nature);
+      animation: pulseDot 2s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+
+    /* Hệ thống Slide */
+    .slides-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 58px 44px 66px 44px;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(18px) scale(0.985);
+      transition: opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+                  transform 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+                  visibility 0.55s;
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+    }
+
+    /* Hiệu ứng xuất hiện tuần tự cho các phần tử bên trong slide active */
+    .slide .anim-item {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .slide.active .anim-item { opacity: 1; transform: translateY(0); }
+    .slide.active .delay-1 { transition-delay: 0.1s; }
+    .slide.active .delay-2 { transition-delay: 0.2s; }
+    .slide.active .delay-3 { transition-delay: 0.3s; }
+    .slide.active .delay-4 { transition-delay: 0.4s; }
+    .slide.active .delay-5 { transition-delay: 0.5s; }
+    .slide.active .delay-6 { transition-delay: 0.6s; }
+
+    /* Typography tiêu chuẩn */
+    .slide-header {
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 10px;
+    }
+
+    .slide-tag {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--blue-primary);
+      font-weight: 700;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .slide-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.45rem, 2.2vw, 2.05rem);
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #ffffff, #bae6fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Thẻ Glassmorphism */
+    .glass-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-glass);
+      border-radius: 16px;
+      padding: 18px 20px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      transition: transform 0.25s ease, border-color 0.25s ease;
+    }
+    .glass-card:hover {
+      border-color: rgba(56, 189, 248, 0.45);
+    }
+
+    /* Bảng số liệu gọn đẹp */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    .data-table th, .data-table td {
+      padding: 9px 12px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .data-table th {
+      color: var(--blue-primary);
+      font-weight: 600;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* Highlight Metrics */
+    .metric-pill {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 12px;
+      font-weight: 700;
+    }
+    .metric-temp {
+      background: rgba(251, 146, 60, 0.16);
+      border: 1px solid rgba(251, 146, 60, 0.4);
+      color: #fdba74;
+    }
+    .metric-rain {
+      background: rgba(56, 189, 248, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #7dd3fc;
+    }
+
+    /* Khu vực biểu đồ */
+    .chart-box {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 210px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chart-note {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: 4px;
+      text-align: right;
+    }
+
+    /* Thanh điều khiển dưới cùng */
+    .control-bar {
+      position: absolute;
+      bottom: 14px;
+      left: 32px;
+      right: 32px;
+      height: 42px;
+      background: rgba(10, 22, 42, 0.85);
+      border: 1px solid var(--border-glass);
+      border-radius: 999px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      backdrop-filter: blur(12px);
+      z-index: 100;
+    }
+
+    .ctrl-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ctrl-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #f8fafc;
+      height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+    .ctrl-btn:hover {
+      background: var(--blue-deep);
+      border-color: var(--blue-primary);
+      transform: translateY(-1px);
+    }
+    .ctrl-btn.active-audio {
+      background: rgba(52, 211, 153, 0.2);
+      border-color: var(--green-nature);
+      color: var(--green-nature);
+    }
+
+    .slide-counter {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: var(--blue-primary);
+      letter-spacing: 1px;
+      padding: 0 8px;
+    }
+
+    input[type="range"].vol-slider {
+      width: 68px;
+      accent-color: var(--blue-primary);
+      cursor: pointer;
+    }
+
+    /* Slide 1 Cover Styling */
+    .cover-layout {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      position: relative;
+    }
+    .cover-sun-glow {
+      position: absolute;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(251, 146, 60, 0.22) 0%, rgba(56, 189, 248, 0.1) 45%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      animation: breatheGlow 6s ease-in-out infinite;
+    }
+    @keyframes breatheGlow {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.15); }
+    }
+    .cover-main-title {
+      font-family: var(--font-display);
+      font-size: clamp(2.2rem, 3.8vw, 3.5rem);
+      font-weight: 900;
+      line-height: 1.18;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, #ffffff 15%, #7dd3fc 55%, #fdba74 95%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin: 14px 0 22px 0;
+      text-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+
+    /* Slide 2 Grid 9 thành viên */
+    .members-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      flex: 1;
+      align-content: center;
+    }
+    .member-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      transition: all 0.3s ease;
+    }
+    .member-card:hover {
+      transform: translateY(-4px) scale(1.02);
+      border-color: var(--blue-primary);
+      background: rgba(56, 189, 248, 0.12);
+    }
+    .member-num {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: #071324;
+      flex-shrink: 0;
+    }
+
+    /* Layout chia cột linh hoạt cho từng Slide báo cáo */
+    .grid-2-col {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 20px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* Khung Video Canvas mô phỏng thời tiết thực tế */
+    .weather-video-box {
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      background: #050d1a;
+      display: flex;
+      flex-direction: column;
+    }
+    .weather-video-box canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .video-overlay-controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(transparent, rgba(2, 6, 23, 0.92));
+      padding: 10px 12px 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 0.78rem;
+    }
+    .v-btn {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: white;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .v-btn:hover { background: var(--blue-primary); color: #040b16; }
+
+    /* Slide 14 Video Gallery (Bố cục 5 video cân đối: hàng trên 3, hàng dưới 2 căn giữa) */
+    .video-gallery-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+      min-height: 0;
+    }
+    .video-row-top {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      flex: 1;
+      min-height: 0;
+    }
+    .video-row-bottom {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      flex: 1;
+      width: 68%;
+      margin: 0 auto;
+      min-height: 0;
+    }
+
+    /* Modal phóng to Video */
+    #video-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.92);
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      backdrop-filter: blur(10px);
+    }
+    #video-modal.open { display: flex; }
+    .modal-content {
+      width: 82vw;
+      height: 46vw;
+      max-height: 82vh;
+      max-width: 145vh;
+      background: #071324;
+      border: 1px solid var(--blue-primary);
+      border-radius: 18px;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Danh sách ý gọn đẹp */
+    .bullet-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.93rem;
+      line-height: 1.45;
+    }
+    .bullet-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .bullet-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--blue-primary);
+      margin-top: 7px;
+      flex-shrink: 0;
+    }
+
+    /* Floating animation */
+    @keyframes floatSlow {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-7px); }
+    }
+    .float-anim { animation: floatSlow 4s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+
+<div id="presentation-wrapper">
+  <div class="meteo-grid-bg"></div>
+  <div id="top-progress-bar"></div>
+
+  <!-- Thanh tiêu đề trên cùng -->
+  <div class="slide-top-bar">
+    <div class="station-badge">
+      <span class="station-dot"></span>
+      <span>TRẠM KHÍ TƯỢNG THỦY VĂN LÁNG – HÀ NỘI (21°01'B, 105°48'Đ)</span>
+    </div>
+    <div class="station-badge">
+      <i data-lucide="compass" style="width:14px;height:14px;color:#38bdf8;"></i>
+      <span>BÁO CÁO ĐỊA LÍ • TỔ 1</span>
+    </div>
+  </div>
+
+  <!-- ==================== 15 SLIDES ==================== -->
+  <div class="slides-container">
+
+    <!-- SLIDE 1: TRANG BÌA -->
+    <section class="slide active" data-slide="1">
+      <div class="cover-layout">
+        <div class="cover-sun-glow"></div>
+        <!-- Minh họa SVG khí tượng động -->
+        <div class="anim-item float-anim" style="margin-bottom: 10px;">
+          <svg width="110" height="72" viewBox="0 0 120 80" fill="none">
+            <circle cx="42" cy="36" r="20" fill="#fb923c" opacity="0.9"/>
+            <circle cx="42" cy="36" r="27" stroke="#facc15" stroke-width="2" stroke-dasharray="4 4"/>
+            <path d="M46 58H88C96.8 58 104 50.8 104 42C104 33.7 97.6 26.8 89.5 26.1C86.6 16.8 77.9 10 67.6 10C55.1 10 45 20.1 45 32.6C45 33.4 45 34.2 45.1 35C38.4 36.2 33.3 42.1 33.3 49.1C33.3 54 39 58 46 58Z" fill="#e0f2fe"/>
+            <line x1="54" y1="64" x2="50" y2="74" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+            <line x1="70" y1="64" x2="66" y2="74" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+            <line x1="86" y1="64" x2="82" y2="74" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+        </div>
+
+        <span class="station-badge anim-item delay-1" style="border-color: rgba(56,189,248,0.5); color: #7dd3fc;">
+          CHƯƠNG TRÌNH THỰC HÀNH KHOA HỌC KHÍ TƯỢNG
+        </span>
+
+        <h1 class="cover-main-title anim-item delay-2">
+          THỰC HÀNH: ĐỌC BIỂU ĐỒ KHÍ HẬU
+        </h1>
+
+        <div class="anim-item delay-3" style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center; margin-top:6px;">
+          <div class="glass-card" style="padding: 12px 24px; display:flex; align-items:center; gap:10px;">
+            <i data-lucide="map-pin" style="color:#fb923c;"></i>
+            <span><strong>Trạm Khí tượng Thủy văn Láng – Hà Nội</strong></span>
+          </div>
+          <div class="glass-card" style="padding: 12px 24px; display:flex; align-items:center; gap:10px;">
+            <i data-lucide="users" style="color:#34d399;"></i>
+            <span><strong>Báo cáo của Tổ 1</strong></span>
+          </div>
+          <div class="glass-card" style="padding: 12px 24px; display:flex; align-items:center; gap:10px;">
+            <i data-lucide="globe-2" style="color:#38bdf8;"></i>
+            <span><strong>Môn Địa lí</strong></span>
+          </div>
+        </div>
+
+        <!-- Đường sóng nhiệt độ trang trí -->
+        <svg class="anim-item delay-4" width="640" height="55" viewBox="0 0 640 55" style="margin-top:24px; opacity:0.8;">
+          <path d="M10 45 Q 160 42, 320 12 T 630 44" fill="none" stroke="url(#gradLine)" stroke-width="3.5" stroke-linecap="round"/>
+          <defs>
+            <linearGradient id="gradLine" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="50%" stop-color="#fb923c"/>
+              <stop offset="100%" stop-color="#38bdf8"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+    </section>
+
+    <!-- SLIDE 2: GIỚI THIỆU 9 THÀNH VIÊN TỔ 1 -->
+    <section class="slide" data-slide="2">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Nhân sự thực hiện nghiên cứu</span>
+          <h2 class="slide-title">THÀNH VIÊN TỔ 1</h2>
+        </div>
+        <span class="station-badge"><i data-lucide="award" style="width:15px;color:#facc15;"></i> 9 Thành viên phân tích độc lập</span>
+      </div>
+
+      <div class="members-grid">
+        <div class="member-card anim-item delay-1">
+          <div class="member-num" style="background: linear-gradient(135deg,#38bdf8,#0284c7);">01</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Nhơn</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Phân tích nhiệt – ẩm tổng quát</div>
+          </div>
+          <i data-lucide="thermometer" style="margin-left:auto; color:#38bdf8;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-1">
+          <div class="member-num" style="background: linear-gradient(135deg,#fb923c,#ea580c);">02</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Ý</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Đánh giá phân hóa mùa nóng ẩm</div>
+          </div>
+          <i data-lucide="cloud-rain" style="margin-left:auto; color:#fb923c;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-2">
+          <div class="member-num" style="background: linear-gradient(135deg,#34d399,#059669);">03</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Trúc</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Xác định mốc cực trị nhiệt độ</div>
+          </div>
+          <i data-lucide="trending-up" style="margin-left:auto; color:#34d399;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-2">
+          <div class="member-num" style="background: linear-gradient(135deg,#facc15,#ca8a04);">04</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Khôi</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Khảo sát mưa cực đại & đối chiếu</div>
+          </div>
+          <i data-lucide="search-check" style="margin-left:auto; color:#facc15;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-3">
+          <div class="member-num" style="background: linear-gradient(135deg,#818cf8,#4f46e5);">05</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Linh</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Thống kê chế độ mưa mùa hạ</div>
+          </div>
+          <i data-lucide="bar-chart-3" style="margin-left:auto; color:#818cf8;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-3">
+          <div class="member-num" style="background: linear-gradient(135deg,#f43f5e,#be123c);">06</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Kim</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Đặc trưng nhiệt đới gió mùa</div>
+          </div>
+          <i data-lucide="wind" style="margin-left:auto; color:#f43f5e;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-4">
+          <div class="member-num" style="background: linear-gradient(135deg,#2dd4bf,#0d9488);">07</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Tường</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Tính toán biên độ nhiệt năm</div>
+          </div>
+          <i data-lucide="activity" style="margin-left:auto; color:#2dd4bf;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-4">
+          <div class="member-num" style="background: linear-gradient(135deg,#a78bfa,#7c3aed);">08</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Giang</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Phân tích ngưỡng nhiệt mùa hạ/đông</div>
+          </div>
+          <i data-lucide="sun-snow" style="margin-left:auto; color:#a78bfa;"></i>
+        </div>
+
+        <div class="member-card anim-item delay-5">
+          <div class="member-num" style="background: linear-gradient(135deg,#38bdf8,#34d399);">09</div>
+          <div>
+            <div style="font-size:1.15rem; font-weight:700;">Phúc</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Tổng hợp chỉ số nhiệt – ẩm</div>
+          </div>
+          <i data-lucide="layers" style="margin-left:auto; color:#38bdf8;"></i>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 3: BÁO CÁO CỦA NHƠN -->
+    <section class="slide" data-slide="3">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 01 / 09</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA NHƠN</h2>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <span class="metric-pill metric-temp">TB năm: <strong>23,9°C</strong></span>
+          <span class="metric-pill metric-rain">Tổng mưa: <strong>1670 mm</strong></span>
+        </div>
+      </div>
+
+      <div class="grid-2-col">
+        <div class="glass-card anim-item delay-1" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <table class="data-table">
+            <thead>
+              <tr><th>Chỉ tiêu khí hậu</th><th>Giá trị đọc được</th><th>Thời gian</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Nhiệt độ trung bình năm</td><td><strong style="color:#fdba74;">23,9°C</strong></td><td>Cả năm</td></tr>
+              <tr><td>Nhiệt độ cao nhất</td><td><strong>~ 29°C</strong></td><td>Tháng 7</td></tr>
+              <tr><td>Nhiệt độ thấp nhất</td><td><strong>~ 16°C</strong></td><td>Tháng 2</td></tr>
+              <tr><td>Lượng mưa cao nhất</td><td><strong style="color:#7dd3fc;">~ 300 mm</strong></td><td>Tháng 8</td></tr>
+              <tr><td>Lượng mưa thấp nhất</td><td><strong>~ 10 mm</strong></td><td>Tháng 12</td></tr>
+              <tr><td>Tháng mưa lớn (&gt; 200 mm)</td><td colspan="2"><strong>Tháng 6, 7, 8, 9</strong> (Tổng năm: <strong>1670 mm</strong>)</td></tr>
+            </tbody>
+          </table>
+
+          <div style="background:rgba(56,189,248,0.1); border-left:3px solid var(--blue-primary); padding:10px 14px; border-radius:8px; font-size:0.88rem; line-height:1.45;">
+            <strong>Nhận xét:</strong> Nhiệt độ thay đổi theo mùa, mùa hè nóng, mùa đông lạnh. Lượng mưa phân bố không đều trong năm; mưa tập trung chủ yếu vào mùa hè, mùa đông ít mưa.
+          </div>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd; margin-bottom:4px;">Biểu đồ khí hậu Trạm Láng (Mốc số liệu báo cáo của Nhơn)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-3"></canvas></div>
+          <div class="chart-note">*Đường nối xu hướng minh họa từ các mốc cực trị đã nêu trong báo cáo.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 4: BÁO CÁO CỦA Ý -->
+    <section class="slide" data-slide="4">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 02 / 09 • Tông màu Nhiệt – Ẩm</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA Ý</h2>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <span class="metric-pill metric-temp">T° max: <strong>29,5°C</strong></span>
+          <span class="metric-pill metric-rain">Mưa max: <strong>~ 310 mm</strong></span>
+        </div>
+      </div>
+
+      <div class="grid-2-col">
+        <div style="display:flex; flex-direction:column; gap:12px;" class="anim-item delay-1">
+          <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:10px;">
+            <div class="glass-card" style="border-color:rgba(251,146,60,0.45); padding:12px;">
+              <div style="font-size:0.78rem; color:#fdba74;">NHIỆT ĐỘ TRUNG BÌNH / CỰC TRỊ</div>
+              <div style="font-size:1.35rem; font-weight:800; color:#fb923c; margin:4px 0;">23,9°C</div>
+              <div style="font-size:0.84rem;">Cao nhất: <strong>29,5°C</strong> | Thấp nhất: <strong>16,5°C</strong></div>
+            </div>
+            <div class="glass-card" style="border-color:rgba(56,189,248,0.45); padding:12px;">
+              <div style="font-size:0.78rem; color:#7dd3fc;">TỔNG MƯA / CỰC TRỊ</div>
+              <div style="font-size:1.35rem; font-weight:800; color:#38bdf8; margin:4px 0;">1670 mm</div>
+              <div style="font-size:0.84rem;">Cao nhất: <strong>~310 mm</strong> | Thấp nhất: <strong>~20 mm</strong></div>
+            </div>
+          </div>
+
+          <div class="glass-card" style="padding:14px; flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.9rem; margin-bottom:8px;">
+              <span style="color:#38bdf8; font-weight:700;">• Các tháng mưa trên 200 mm:</span> Tháng 6, 7, 8, 9.
+            </div>
+            <p style="font-size:0.9rem; line-height:1.5; color:#e2e8f0;">
+              <strong>Nhận xét:</strong> Láng (Hà Nội) có khí hậu nóng ẩm, phân hóa theo mùa. Mùa hè nóng, mưa nhiều, tập trung từ tháng 6 đến tháng 9. Mùa đông lạnh, ít mưa. Nhiệt độ và lượng mưa giữa mùa đông và mùa hè có sự chênh lệch lớn.
+            </p>
+          </div>
+        </div>
+
+        <!-- Video minh họa mưa mùa hè Hà Nội -->
+        <div class="weather-video-box anim-item delay-2">
+          <canvas id="sim-video-slide4" width="520" height="320"></canvas>
+          <div style="position:absolute; top:12px; left:12px; background:rgba(2,6,23,0.75); padding:4px 10px; border-radius:8px; font-size:0.78rem; color:#7dd3fc; border:1px solid rgba(56,189,248,0.3);">
+            ▶ Mô phỏng trực quan: Mưa rào mùa hạ Hà Nội (Tháng 6–9)
+          </div>
+          <div class="video-overlay-controls">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button class="v-btn" onclick="toggleSimVideo('sim-video-slide4', this)"><i data-lucide="pause" style="width:13px;"></i></button>
+              <button class="v-btn" onclick="toggleRainSFX()"><i data-lucide="volume-2" style="width:13px;"></i></button>
+              <span>Mưa lớn mùa hạ (~310 mm)</span>
+            </div>
+            <button class="v-btn" onclick="openVideoModal('summer_rain', 'Mưa rào mùa hạ tại Hà Nội (Tháng 6 – Tháng 9)')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 5: BÁO CÁO CỦA TRÚC -->
+    <section class="slide" data-slide="5">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 03 / 09</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA TRÚC</h2>
+        </div>
+        <span class="metric-pill metric-temp">T° TB năm: <strong>23,9°C</strong></span>
+      </div>
+
+      <div class="grid-2-col">
+        <div class="glass-card anim-item delay-1" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div style="background:rgba(244,63,94,0.14); border:1px solid rgba(244,63,94,0.4); border-radius:12px; padding:12px;">
+              <div style="display:flex; align-items:center; gap:6px; color:#fda4af; font-size:0.8rem; font-weight:700;">
+                <i data-lucide="sun" style="width:16px;"></i> NHIỆT ĐỘ CAO NHẤT
+              </div>
+              <div style="font-size:1.5rem; font-weight:800; color:#fb7185; margin:4px 0;">~ 29,8°C</div>
+              <div style="font-size:0.82rem;">Cuối tháng 6 và đầu tháng 7</div>
+            </div>
+
+            <div style="background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.4); border-radius:12px; padding:12px;">
+              <div style="display:flex; align-items:center; gap:6px; color:#7dd3fc; font-size:0.8rem; font-weight:700;">
+                <i data-lucide="snowflake" style="width:16px;"></i> NHIỆT ĐỘ THẤP NHẤT
+              </div>
+              <div style="font-size:1.5rem; font-weight:800; color:#38bdf8; margin:4px 0;">~ 17°C – 18°C</div>
+              <div style="font-size:0.82rem;">Vào tháng 1</div>
+            </div>
+          </div>
+
+          <ul class="bullet-list" style="margin-top:10px;">
+            <li><span class="bullet-dot"></span><span><strong>Nhiệt độ trung bình năm:</strong> 23,9°C.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Lượng mưa cao nhất:</strong> khoảng 300 mm ở tháng 8.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Lượng mưa thấp nhất:</strong> khoảng 20 mm.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Tháng có lượng mưa lớn (&gt; 200 mm):</strong> tháng 6, 7, 8, 9.</span></li>
+          </ul>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Biểu đồ đường nhiệt độ & cột mưa (Báo cáo của Trúc)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-5"></canvas></div>
+          <div class="chart-note">*Biểu đồ minh họa các mốc cực trị Trúc đọc được từ biểu đồ gốc.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 6: BÁO CÁO CỦA KHÔI -->
+    <section class="slide" data-slide="6">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 04 / 09 • Phân tích & Đối chiếu khoa học</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA KHÔI</h2>
+        </div>
+        <span class="metric-pill metric-rain">Mưa cực đại T8: <strong>~ 300 mm</strong></span>
+      </div>
+
+      <div class="grid-2-col">
+        <div style="display:flex; flex-direction:column; gap:14px;" class="anim-item delay-1">
+          <!-- Khu vực NHIỆT ĐỘ -->
+          <div class="glass-card" style="border-color: rgba(251,146,60,0.4); padding:18px; flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <div style="display:flex; align-items:center; gap:8px; color:#fb923c; font-weight:700; margin-bottom:10px;">
+              <i data-lucide="thermometer" style="width:18px;"></i> KHU VỰC 1: NHIỆT ĐỘ (Theo ghi nhận ban đầu)
+            </div>
+            <p style="font-size:0.92rem; line-height:1.6;">
+              • Nhiệt độ tháng thấp nhất được ghi là từ <strong>tháng 6 đến 7</strong>, khoảng <strong>17°C–18°C</strong>.<br>
+              • Nhiệt độ cao nhất được ghi là từ <strong>đầu tháng 8</strong>.
+            </p>
+          </div>
+
+          <!-- Khu vực LƯỢNG MƯA -->
+          <div class="glass-card" style="border-color: rgba(56,189,248,0.4); padding:18px; flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <div style="display:flex; align-items:center; gap:8px; color:#38bdf8; font-weight:700; margin-bottom:10px;">
+              <i data-lucide="cloud-rain" style="width:18px;"></i> KHU VỰC 2: LƯỢNG MƯA
+            </div>
+            <p style="font-size:0.92rem; line-height:1.6;">
+              • Lượng mưa cao nhất ở <strong>tháng 8</strong>, khoảng <strong style="color:#7dd3fc; font-size:1.05rem;">300 mm</strong>.<br>
+              • Lượng mưa thấp nhất khoảng <strong>20 mm</strong>.
+            </p>
+          </div>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Biểu đồ lượng mưa nổi bật tháng 8 (Báo cáo của Khôi)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-6"></canvas></div>
+          <div class="chart-note">*Biểu diễn cột mưa đã xác nhận (T8 ~300 mm) và vùng cần đối chiếu nhiệt độ.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 7: BÁO CÁO CỦA LINH -->
+    <section class="slide" data-slide="7">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 05 / 09</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA LINH</h2>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <span class="metric-pill metric-temp">TB năm: <strong>23,9°C</strong></span>
+          <span class="metric-pill metric-rain">Tổng mưa: <strong>1.670 mm</strong></span>
+        </div>
+      </div>
+
+      <div class="grid-2-col">
+        <div class="glass-card anim-item delay-1" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <table class="data-table">
+            <thead>
+              <tr><th>Thông số thống kê</th><th>Kết quả</th><th>Ghi nhận tháng</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Tổng lượng mưa năm</td><td><strong style="color:#38bdf8;">1.670 mm</strong></td><td>Cả năm</td></tr>
+              <tr><td>Nhiệt độ trung bình năm</td><td><strong style="color:#fb923c;">23,9°C</strong></td><td>Cả năm</td></tr>
+              <tr><td>Nhiệt độ cao nhất</td><td><strong>~ 29°C</strong></td><td>Tháng 7</td></tr>
+              <tr><td>Nhiệt độ thấp nhất</td><td><strong>~ 16°C</strong></td><td>Tháng 2</td></tr>
+              <tr><td>Lượng mưa cao nhất</td><td><strong>~ 310 mm</strong></td><td>Tháng 8</td></tr>
+              <tr><td>Lượng mưa thấp nhất</td><td><strong>~ 15 mm</strong></td><td>Tháng 12</td></tr>
+              <tr><td>Mưa lớn (&gt; 200 mm)</td><td colspan="2"><strong>Tháng 6, 7, 8 và 9</strong></td></tr>
+            </tbody>
+          </table>
+          <div style="background:rgba(52,211,153,0.12); border-left:3px solid var(--green-nature); padding:10px 14px; border-radius:8px; font-size:0.88rem;">
+            <strong>Nhận xét chung:</strong> Hà Nội có nhiệt độ cao nhất vào mùa hè và thấp nhất vào mùa đông. Lượng mưa tập trung chủ yếu vào các tháng mùa hè, đặc biệt là tháng 8.
+          </div>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Biểu đồ nhiệt độ và lượng mưa (Báo cáo của Linh)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-7"></canvas></div>
+          <div class="chart-note">*Số liệu minh họa theo các mốc tháng 2, 7, 8, 12 trong báo cáo của Linh.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 8: BÁO CÁO CỦA KIM -->
+    <section class="slide" data-slide="8">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 06 / 09</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA KIM</h2>
+        </div>
+        <span class="station-badge" style="color:#34d399; border-color:rgba(52,211,153,0.4);">Khí hậu nhiệt đới gió mùa</span>
+      </div>
+
+      <div class="grid-2-col">
+        <div style="display:flex; flex-direction:column; gap:12px;" class="anim-item delay-1">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="glass-card" style="padding:14px;">
+              <div style="color:#fb923c; font-weight:700; font-size:0.82rem; margin-bottom:6px;">CHẾ ĐỘ NHIỆT ĐỘ</div>
+              <div style="font-size:0.9rem; line-height:1.55;">
+                • TB năm: <strong style="color:#fdba74;">23,9°C</strong><br>
+                • Cao nhất: <strong>~29°C</strong> (Tháng 7)<br>
+                • Thấp nhất: <strong>~16°C</strong> (Tháng 1)
+              </div>
+            </div>
+            <div class="glass-card" style="padding:14px;">
+              <div style="color:#38bdf8; font-weight:700; font-size:0.82rem; margin-bottom:6px;">CHẾ ĐỘ LƯỢNG MƯA</div>
+              <div style="font-size:0.9rem; line-height:1.55;">
+                • Cao nhất: <strong style="color:#7dd3fc;">~300 mm</strong> (Tháng 8)<br>
+                • Thấp nhất: <strong>~10 mm</strong> (Tháng 12)<br>
+                • Mưa &gt; 200 mm: <strong>Tháng 6, 7, 8, 9</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card" style="flex:1; display:flex; align-items:center; gap:14px;">
+            <i data-lucide="leaf" style="width:36px; height:36px; color:#34d399; flex-shrink:0;"></i>
+            <p style="font-size:0.94rem; line-height:1.5;">
+              <strong>Nhận xét của Kim:</strong> Hà Nội có khí hậu nhiệt đới gió mùa, mùa hè nóng và mưa nhiều, mùa đông lạnh và ít mưa.
+            </p>
+          </div>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Biểu đồ minh họa khí hậu Hà Nội (Báo cáo của Kim)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-8"></canvas></div>
+          <div class="chart-note">*Biểu diễn các điểm mốc tháng 1, 7, 8, 12 theo số liệu Kim báo cáo.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 9: BÁO CÁO CỦA TƯỜNG -->
+    <section class="slide" data-slide="9">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 07 / 09 • Điểm nhấn Biên độ nhiệt</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA TƯỜNG</h2>
+        </div>
+        <span class="metric-pill" style="background:rgba(244,63,94,0.2); border:1px solid #f43f5e; color:#fda4af;">
+          Biên độ nhiệt năm: <strong style="font-size:1.1rem;">12,8°C</strong>
+        </span>
+      </div>
+
+      <div class="grid-2-col">
+        <div class="glass-card anim-item delay-1" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.05); padding:10px 14px; border-radius:12px;">
+            <div>
+              <div style="font-size:0.78rem; color:var(--text-muted);">CHÊNH LỆCH HÈ – ĐÔNG</div>
+              <div style="font-size:1.5rem; font-weight:900; color:#fb7185;">12,8°C</div>
+            </div>
+            <div style="text-align:right; font-size:0.85rem;">
+              <div>Cao nhất: <strong>~29°C</strong> (Tháng 6)</div>
+              <div>Thấp nhất: <strong>~17°C</strong> (Tháng 2)</div>
+            </div>
+          </div>
+
+          <ul class="bullet-list" style="font-size:0.88rem;">
+            <li><span class="bullet-dot"></span><span><strong>Nhiệt độ TB năm:</strong> 23,9°C | <strong>Tổng lượng mưa:</strong> 1670 mm.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Mưa cực đại:</strong> ~310 mm (Tháng 8) | <strong>Cực tiểu:</strong> ~20 mm (Tháng 12).</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Tháng mưa trên 200 mm:</strong> tháng 6, 7, 8, 9.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Nhận xét:</strong> Nhiệt độ trung bình năm khá cao (23,9°C). Lượng mưa trung bình năm khá lớn (1670 mm), phân bố không đều, tập trung chủ yếu từ tháng 5 đến tháng 10; mùa đông ít mưa hơn.</span></li>
+          </ul>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Đường biểu diễn nhiệt độ & Biên độ nhiệt 12,8°C (Tường)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-9"></canvas></div>
+          <div class="chart-note">*Biểu diễn các mốc T2 (~17°C), T6 (~29°C), T8 (~310 mm), T12 (~20 mm).</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 10: BÁO CÁO CỦA GIANG -->
+    <section class="slide" data-slide="10">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 08 / 09</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA GIANG</h2>
+        </div>
+        <span class="metric-pill metric-rain">Mưa đỉnh điểm T8: <strong>310 – 320 mm</strong></span>
+      </div>
+
+      <div class="grid-2-col">
+        <div class="glass-card anim-item delay-1" style="display:flex; flex-direction:column; justify-content:space-between; font-size:0.88rem;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div style="background:rgba(251,146,60,0.12); padding:8px 12px; border-radius:10px;">
+              <strong style="color:#fdba74;">Mùa hạ nóng (&gt; 25°C)</strong><br>
+              Cao nhất ~29°C–30°C (T6, T7)
+            </div>
+            <div style="background:rgba(56,189,248,0.12); padding:8px 12px; border-radius:10px;">
+              <strong style="color:#7dd3fc;">Mùa đông lạnh (&lt; 20°C)</strong><br>
+              T12, T1, T2 (~16°C–17°C ở T1)
+            </div>
+          </div>
+
+          <ul class="bullet-list">
+            <li><span class="bullet-dot"></span><span><strong>Nhiệt độ TB năm:</strong> 23,9°C | <strong>Tổng lượng mưa:</strong> 1670 mm.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Lượng mưa cao nhất:</strong> ~310–320 mm (T8) | <strong>Thấp nhất:</strong> ~15–20 mm (T12).</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Tháng mưa lớn (&gt; 200 mm):</strong> tháng 6, 7, 8 và 9.</span></li>
+            <li><span class="bullet-dot"></span><span><strong>Nhận xét chung:</strong> Nhiệt độ TB năm cao (~23°C). Biên độ nhiệt năm lớn, chênh lệch giữa tháng nóng nhất và lạnh nhất khoảng <strong>13°C</strong>.</span></li>
+          </ul>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px;" class="anim-item delay-2">
+          <div class="glass-card chart-box" style="flex:1.15; padding:12px;">
+            <div style="font-size:0.8rem; font-weight:600; color:#bae6fd;">Biểu đồ lượng mưa nổi bật tháng 8 (Giang)</div>
+            <div style="flex:1; position:relative;"><canvas id="chart-slide-10"></canvas></div>
+          </div>
+          <div class="weather-video-box" style="flex:0.85;">
+            <canvas id="sim-video-slide10" width="480" height="150"></canvas>
+            <div class="video-overlay-controls">
+              <span>▶ Video ngắn: Mưa dông & thời tiết mùa hè</span>
+              <button class="v-btn" onclick="openVideoModal('storm_clouds', 'Mưa lớn & Dông bão mùa hè Hà Nội')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 11: BÁO CÁO CỦA PHÚC -->
+    <section class="slide" data-slide="11">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Thành viên 09 / 09</span>
+          <h2 class="slide-title">PHẦN TRÌNH BÀY CỦA PHÚC</h2>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <span class="metric-pill metric-temp">TB năm: <strong>23,9°C</strong></span>
+          <span class="metric-pill metric-rain">Tổng mưa: <strong>1670 mm</strong></span>
+        </div>
+      </div>
+
+      <div class="grid-2-col">
+        <div style="display:flex; flex-direction:column; gap:12px;" class="anim-item delay-1">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div class="glass-card" style="border-top:3px solid #fb923c; padding:12px;">
+              <div style="font-weight:700; color:#fdba74; margin-bottom:4px;">☀ MÙA HẠ</div>
+              <div style="font-size:0.86rem; line-height:1.45;">
+                • Nhiệt độ cao nhất: <strong>~30°C</strong> (T6, T7)<br>
+                • Mưa cao nhất: <strong>&gt; 300 mm</strong> (T8)<br>
+                • Mưa lớn tập trung: <strong>T6, 7, 8, 9</strong>
+              </div>
+            </div>
+            <div class="glass-card" style="border-top:3px solid #38bdf8; padding:12px;">
+              <div style="font-weight:700; color:#7dd3fc; margin-bottom:4px;">❄ MÙA ĐÔNG</div>
+              <div style="font-size:0.86rem; line-height:1.45;">
+                • Nhiệt độ thấp nhất: <strong>~17°C</strong> (T1)<br>
+                • Lượng mưa thấp nhất: <strong>&lt; 50 mm</strong> (T1 và T2)<br>
+                • Ít mưa, khô lạnh
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-card" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+            <div style="display:flex; justify-content:space-around; text-align:center; margin-bottom:10px;">
+              <div>
+                <div style="font-size:0.78rem; color:var(--text-muted);">NHIỆT ĐỘ TB NĂM</div>
+                <div style="font-size:1.7rem; font-weight:900; color:#fb923c;">23,9°C</div>
+              </div>
+              <div style="width:1px; background:rgba(255,255,255,0.15);"></div>
+              <div>
+                <div style="font-size:0.78rem; color:var(--text-muted);">TỔNG LƯỢNG MƯA</div>
+                <div style="font-size:1.7rem; font-weight:900; color:#38bdf8;">1670 mm</div>
+              </div>
+            </div>
+            <p style="font-size:0.9rem; text-align:center; color:#cbd5e1;">
+              <strong>Nhận xét:</strong> Khí hậu nhiệt đới gió mùa, nóng ẩm, mưa tập trung vào mùa hạ.
+            </p>
+          </div>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Biểu đồ thống kê nhiệt – ẩm (Báo cáo của Phúc)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-11"></canvas></div>
+          <div class="chart-note">*Minh họa các ngưỡng T1, T2, T6, T7, T8 từ báo cáo của Phúc.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 12: TỔNG HỢP KẾT QUẢ BÁO CÁO CỦA 9 THÀNH VIÊN -->
+    <section class="slide" data-slide="12">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Đối chiếu & Chuẩn hóa dữ liệu nhóm</span>
+          <h2 class="slide-title">TỔNG HỢP KẾT QUẢ THỰC HÀNH</h2>
+        </div>
+        <span class="station-badge"><i data-lucide="check-circle-2" style="width:15px;color:#34d399;"></i> Thống nhất 9/9 thành viên</span>
+      </div>
+
+      <div class="grid-2-col">
+        <!-- 8 thẻ số liệu tổng hợp giãn đều toàn chiều cao -->
+        <div class="anim-item delay-1" style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px;">
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">1. NHIỆT ĐỘ TB NĂM</div>
+            <div style="font-size:1.35rem; font-weight:800; color:#fb923c;">23,9°C</div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">2. TỔNG LƯỢNG MƯA NĂM</div>
+            <div style="font-size:1.35rem; font-weight:800; color:#38bdf8;">~ 1670 mm</div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">3. NHIỆT ĐỘ CAO NHẤT</div>
+            <div style="font-size:1.12rem; font-weight:700; color:#fdba74;">~ 29°C – 30°C <span style="font-size:0.8rem; font-weight:400;">(T6–7)</span></div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">4. NHIỆT ĐỘ THẤP NHẤT</div>
+            <div style="font-size:1.12rem; font-weight:700; color:#bae6fd;">~ 16°C – 18°C <span style="font-size:0.8rem; font-weight:400;">(T1–2)</span></div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">5. LƯỢNG MƯA CAO NHẤT</div>
+            <div style="font-size:1.12rem; font-weight:700; color:#38bdf8;">~ 300 – 320 mm <span style="font-size:0.8rem; font-weight:400;">(T8)</span></div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">6. LƯỢNG MƯA THẤP NHẤT</div>
+            <div style="font-size:1.12rem; font-weight:700; color:#94a3b8;">~ 10 – 20 mm <span style="font-size:0.78rem; font-weight:400;">(cần đối chiếu)</span></div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">7. THÁNG MƯA &gt; 200 MM</div>
+            <div style="font-size:1.12rem; font-weight:700; color:#34d399;">Tháng 6, 7, 8, 9</div>
+          </div>
+          <div class="glass-card" style="padding:12px 16px; display:flex; flex-direction:column; justify-content:center;">
+            <div style="font-size:0.76rem; color:var(--text-muted);">8. BIÊN ĐỘ NHIỆT NĂM</div>
+            <div style="font-size:1.12rem; font-weight:700; color:#fb7185;">~ 12,8°C – 13°C</div>
+          </div>
+        </div>
+
+        <div class="glass-card anim-item delay-2 chart-box">
+          <div style="font-size:0.85rem; font-weight:600; color:#bae6fd;">Biểu đồ khí hậu tổng hợp Trạm Láng (12 tháng)</div>
+          <div style="flex:1; position:relative;"><canvas id="chart-slide-12"></canvas></div>
+          <div class="chart-note">*Biểu đồ tổng hợp các mốc cực trị thống nhất của Tổ 1 (đường nối nét đứt minh họa xu hướng mùa).</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 13: ĐẶC ĐIỂM KHÍ HẬU CỦA HÀ NỘI QUA BIỂU ĐỒ -->
+    <section class="slide" data-slide="13">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Tổng kết kiến thức Địa lí</span>
+          <h2 class="slide-title">NHẬN XÉT CHUNG VỀ KHÍ HẬU TRẠM LÁNG</h2>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="ctrl-btn" onclick="switchSeasonView('summer')" id="btn-summer" style="background:rgba(251,146,60,0.25); border-color:#fb923c;">☀ Mùa Hạ</button>
+          <button class="ctrl-btn" onclick="switchSeasonView('winter')" id="btn-winter">❄ Mùa Đông</button>
+        </div>
+      </div>
+
+      <div class="grid-2-col">
+        <div style="display:flex; flex-direction:column; gap:10px;" class="anim-item delay-1">
+          <div class="glass-card" style="padding:12px 16px;">
+            <div style="font-weight:700; color:#38bdf8; margin-bottom:6px; font-size:0.9rem;">8 ĐẶC ĐIỂM CỐT LÕI QUA BIỂU ĐỒ</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; font-size:0.83rem; line-height:1.4;">
+              <div>1. Khí hậu <strong>nhiệt đới gió mùa</strong>.</div>
+              <div>5. Tổng mưa lớn: <strong>~1670 mm</strong>.</div>
+              <div>2. T° TB năm cao: <strong>~23,9°C</strong>.</div>
+              <div>6. Mưa phân bố <strong>không đều</strong>.</div>
+              <div>3. Mùa hè nóng: <strong>~29–30°C</strong>.</div>
+              <div>7. Mưa tập trung <strong>tháng 6 – 9</strong>.</div>
+              <div>4. Mùa đông lạnh: <strong>~16–18°C</strong>.</div>
+              <div>8. Mùa đông <strong>ít mưa hơn</strong>.</div>
+            </div>
+          </div>
+
+          <!-- Giải thích 3 câu hỏi Địa lí -->
+          <div class="glass-card" style="padding:12px 16px; flex:1; display:flex; flex-direction:column; justify-content:space-around; font-size:0.84rem; line-height:1.42;">
+            <div>
+              <strong style="color:#fdba74;">• Vì sao nhiệt độ thay đổi theo mùa?</strong> Do tác động của vị trí nội chí tuyến kết hợp gió mùa: mùa hạ góc nhập xạ lớn + gió mùa Tây Nam/Đông Nam gây nóng; mùa đông chịu ảnh hưởng gió mùa Đông Bắc lạnh.
+            </div>
+            <div>
+              <strong style="color:#7dd3fc;">• Vì sao lượng mưa tập trung vào mùa hè?</strong> Do hoạt động của gió mùa mùa hạ mang ẩm từ biển vào, kết hợp dải hội tụ nhiệt đới và bão gây mưa lớn từ tháng 6 đến tháng 9.
+            </div>
+            <div>
+              <strong style="color:#34d399;">• Ý nghĩa của biểu đồ khí hậu:</strong> Giúp nhận biết nhanh chế độ nhiệt, chế độ mưa, sự phân hóa mùa và kiểu khí hậu đặc trưng của một địa phương.
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px;" class="anim-item delay-2">
+          <!-- Thẻ chuyển đổi mùa trực quan -->
+          <div id="season-compare-card" class="glass-card" style="border-color:#fb923c; background:linear-gradient(135deg, rgba(251,146,60,0.18), rgba(13,30,54,0.85)); padding:14px;">
+            <div id="season-title" style="font-weight:800; color:#fdba74; font-size:1rem;">☀ HÀ NỘI MÙA HẠ (THÁNG 5 – THÁNG 10)</div>
+            <p id="season-desc" style="font-size:0.86rem; margin-top:4px; line-height:1.45;">
+              Nắng nóng gay gắt (đỉnh điểm 29–30°C vào T6–T7), độ ẩm cao, mưa rào và dông tập trung mạnh nhất từ tháng 6 đến tháng 9 (đạt 300–320 mm vào tháng 8).
+            </p>
+          </div>
+
+          <div class="glass-card chart-box" style="flex:1; padding:12px;">
+            <div style="font-size:0.82rem; font-weight:600; color:#bae6fd;">Biểu đồ khí hậu Trạm Láng (Hà Nội) – Góc nhìn tổng quát</div>
+            <div style="flex:1; position:relative;"><canvas id="chart-slide-13"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 14: VIDEO KHÁM PHÁ KHÍ HẬU HÀ NỘI -->
+    <section class="slide" data-slide="14">
+      <div class="slide-header">
+        <div>
+          <span class="slide-tag">Trực quan hóa đa phương tiện • Nhấn nút Phóng to để xem toàn màn hình</span>
+          <h2 class="slide-title">KHÁM PHÁ THỜI TIẾT VÀ KHÍ HẬU HÀ NỘI</h2>
+        </div>
+        <span class="station-badge"><i data-lucide="film" style="width:15px;color:#38bdf8;"></i> 5 Video mô phỏng khí hậu trực quan</span>
+      </div>
+
+      <div class="video-gallery-wrapper anim-item delay-1">
+        <!-- Hàng trên: 3 Video -->
+        <div class="video-row-top">
+          <!-- Video 1 -->
+          <div class="weather-video-box">
+            <canvas id="gal-vid-1" width="400" height="190"></canvas>
+            <div class="video-overlay-controls">
+              <div>
+                <div style="font-weight:700; color:#fdba74;">1. Hà Nội mùa hè nắng nóng</div>
+                <div style="font-size:0.7rem; color:#cbd5e1;">Bức xạ mặt trời mạnh, T° đạt 29–30°C</div>
+              </div>
+              <button class="v-btn" onclick="openVideoModal('summer_sun', '1. Cảnh Hà Nội vào mùa hè nắng nóng (29°C–30°C)')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+            </div>
+          </div>
+
+          <!-- Video 2 -->
+          <div class="weather-video-box">
+            <canvas id="gal-vid-2" width="400" height="190"></canvas>
+            <div class="video-overlay-controls">
+              <div>
+                <div style="font-weight:700; color:#7dd3fc;">2. Mưa lớn tại Hà Nội (Tháng 8)</div>
+                <div style="font-size:0.7rem; color:#cbd5e1;">Mưa rào mùa hạ đạt 300–320 mm</div>
+              </div>
+              <button class="v-btn" onclick="openVideoModal('summer_rain', '2. Mưa lớn mùa hạ tại Hà Nội (Đỉnh điểm tháng 8)')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+            </div>
+          </div>
+
+          <!-- Video 3 -->
+          <div class="weather-video-box">
+            <canvas id="gal-vid-3" width="400" height="190"></canvas>
+            <div class="video-overlay-controls">
+              <div>
+                <div style="font-weight:700; color:#e2e8f0;">3. Cảnh mùa đông Hà Nội</div>
+                <div style="font-size:0.7rem; color:#cbd5e1;">Gió mùa Đông Bắc, T° giảm còn 16–18°C</div>
+              </div>
+              <button class="v-btn" onclick="openVideoModal('winter_mist', '3. Cảnh mùa đông lạnh và ít mưa tại Hà Nội')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hàng dưới: 2 Video căn giữa -->
+        <div class="video-row-bottom">
+          <!-- Video 4 -->
+          <div class="weather-video-box">
+            <canvas id="gal-vid-4" width="440" height="190"></canvas>
+            <div class="video-overlay-controls">
+              <div>
+                <div style="font-weight:700; color:#facc15;">4. Mây, giông & chuyển biến thời tiết</div>
+                <div style="font-size:0.7rem; color:#cbd5e1;">Đối lưu nhiệt đới ẩm gây dông chiều</div>
+              </div>
+              <button class="v-btn" onclick="openVideoModal('storm_clouds', '4. Mây, giông và sự chuyển biến thời tiết Hà Nội')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+            </div>
+          </div>
+
+          <!-- Video 5 -->
+          <div class="weather-video-box">
+            <canvas id="gal-vid-5" width="440" height="190"></canvas>
+            <div class="video-overlay-controls">
+              <div>
+                <div style="font-weight:700; color:#34d399;">5. Quan trắc khí tượng Trạm Láng</div>
+                <div style="font-size:0.7rem; color:#cbd5e1;">Đo nhiệt độ không khí & vũ kế đo mưa</div>
+              </div>
+              <button class="v-btn" onclick="openVideoModal('meteo_station', '5. Hoạt động quan trắc nhiệt độ & lượng mưa tại Trạm Láng')"><i data-lucide="maximize-2" style="width:13px;"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 15: CẢM ƠN VÀ TẠM BIỆT -->
+    <section class="slide" data-slide="15">
+      <div class="cover-layout">
+        <div class="cover-sun-glow" style="background: radial-gradient(circle, rgba(52,211,153,0.22) 0%, rgba(56,189,248,0.15) 50%, transparent 70%);"></div>
+
+        <div class="anim-item float-anim" style="margin-bottom:14px;">
+          <div style="width:68px; height:68px; border-radius:50%; background:rgba(52,211,153,0.18); border:2px solid #34d399; display:flex; align-items:center; justify-content:center; margin:0 auto;">
+            <i data-lucide="sparkles" style="width:34px; height:34px; color:#34d399;"></i>
+          </div>
+        </div>
+
+        <h1 class="cover-main-title anim-item delay-1" style="font-size: clamp(2rem, 3.3vw, 3rem); margin-bottom: 12px;">
+          CẢM ƠN THẦY/CÔ VÀ CÁC BẠN ĐÃ LẮNG NGHE!
+        </h1>
+
+        <div class="anim-item delay-2" style="font-family:var(--font-display); font-size:1.35rem; font-weight:800; color:#34d399; letter-spacing:1px; margin-bottom:8px;">
+          TỔ 1 XIN CHÂN THÀNH CẢM ƠN!
+        </div>
+
+        <div class="anim-item delay-3" style="font-size:1.15rem; color:#bae6fd; font-weight:600; margin-bottom:26px;">
+          HẸN GẶP LẠI!
+        </div>
+
+        <!-- Hiển thị lại 9 thành viên Tổ 1 -->
+        <div class="glass-card anim-item delay-4" style="padding:14px 26px; max-width:860px;">
+          <div style="font-size:0.78rem; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-muted); margin-bottom:8px;">
+            Tập thể thực hiện – Tổ 1 (Môn Địa lí)
+          </div>
+          <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:10px 18px; font-weight:700; font-size:0.98rem; color:#f8fafc;">
+            <span>1. Nhơn</span> •
+            <span>2. Ý</span> •
+            <span>3. Trúc</span> •
+            <span>4. Khôi</span> •
+            <span>5. Linh</span> •
+            <span>6. Kim</span> •
+            <span>7. Tường</span> •
+            <span>8. Giang</span> •
+            <span>9. Phúc</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ==================== THANH ĐIỀU KHIỂN DƯỚI CÙNG ==================== -->
+  <div class="control-bar">
+    <div class="ctrl-group">
+      <button class="ctrl-btn" id="btn-prev" onclick="prevSlide()" title="Slide trước (Mũi tên trái)">
+        <i data-lucide="chevron-left" style="width:16px;"></i> Trước
+      </button>
+      <span class="slide-counter" id="slide-counter">01 / 15</span>
+      <button class="ctrl-btn" id="btn-next" onclick="nextSlide()" title="Slide tiếp theo (Mũi tên phải / Space)">
+        Tiếp <i data-lucide="chevron-right" style="width:16px;"></i>
+      </button>
+    </div>
+
+    <div class="ctrl-group">
+      <button class="ctrl-btn" id="btn-bgm" onclick="toggleBGM()" title="Bật/Tắt nhạc nền khoa học & hiệu ứng âm thanh">
+        <i data-lucide="volume-x" id="bgm-icon" style="width:15px;"></i>
+        <span id="bgm-label">Bật âm thanh</span>
+      </button>
+      <button class="ctrl-btn" id="btn-rain-sfx" onclick="toggleRainSFX()" title="Bật/Tắt tiếng mưa & thiên nhiên">
+        <i data-lucide="cloud-rain" style="width:15px;"></i> Mưa
+      </button>
+      <input type="range" class="vol-slider" id="master-volume" min="0" max="1" step="0.05" value="0.5" oninput="setMasterVolume(this.value)" title="Âm lượng tổng">
+    </div>
+
+    <div class="ctrl-group">
+      <button class="ctrl-btn" onclick="goToSlide(1)" title="Về đầu (Home)">
+        <i data-lucide="home" style="width:14px;"></i>
+      </button>
+      <button class="ctrl-btn" onclick="toggleFullscreen()" title="Toàn màn hình (F11 / Esc thoát)">
+        <i data-lucide="maximize" style="width:14px;"></i> Toàn màn hình
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PHÓNG TO VIDEO -->
+<div id="video-modal" onclick="closeVideoModal(event)">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div style="padding:12px 20px; background:#0b1c36; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.12);">
+      <span id="modal-video-title" style="font-weight:700; color:#7dd3fc;">Video Khí hậu Hà Nội</span>
+      <button class="ctrl-btn" onclick="closeVideoModal()"><i data-lucide="x" style="width:15px;"></i> Đóng</button>
+    </div>
+    <div style="flex:1; position:relative; background:#030812;">
+      <canvas id="modal-sim-canvas" width="1100" height="560" style="width:100%; height:100%; display:block;"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Khởi tạo biểu tượng Lucide
+  lucide.createIcons();
+
+  // ==================== 1. QUẢN LÝ ĐIỀU HƯỚNG 15 SLIDE ====================
+  const totalSlides = 15;
+  let currentSlide = 1;
+  const slides = document.querySelectorAll('.slide');
+  const progressBar = document.getElementById('top-progress-bar');
+  const counterEl = document.getElementById('slide-counter');
+
+  function updateSlideUI() {
+    slides.forEach((s, idx) => {
+      if (idx + 1 === currentSlide) {
+        s.classList.add('active');
+      } else {
+        s.classList.remove('active');
+      }
+    });
+
+    counterEl.textContent = `${String(currentSlide).padStart(2, '0')} / ${totalSlides}`;
+    progressBar.style.width = `${(currentSlide / totalSlides) * 100}%`;
+
+    // Vẽ hoặc chạy lại hiệu ứng biểu đồ khi vào slide có biểu đồ
+    renderChartForSlide(currentSlide);
+    playTransitionSound();
+  }
+
+  function goToSlide(n) {
+    if (n < 1) n = 1;
+    if (n > totalSlides) n = totalSlides;
+    if (n !== currentSlide) {
+      currentSlide = n;
+      updateSlideUI();
+    }
+  }
+
+  function nextSlide() { goToSlide(currentSlide + 1); }
+  function prevSlide() { goToSlide(currentSlide - 1); }
+
+  // Điều khiển bàn phím (Không can thiệp khi đang tương tác video/input)
+  document.addEventListener('keydown', (e) => {
+    const tag = document.activeElement.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'video') return;
+    if (document.getElementById('video-modal').classList.contains('open')) {
+      if (e.key === 'Escape') closeVideoModal();
+      return;
+    }
+
+    if (e.key === 'ArrowRight' || e.key === ' ') {
+      e.preventDefault();
+      nextSlide();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      prevSlide();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      goToSlide(1);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      goToSlide(totalSlides);
+    }
+  });
+
+  // Toàn màn hình
+  function toggleFullscreen() {
+    const elem = document.documentElement;
+    if (!document.fullscreenElement) {
+      elem.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  // ==================== 2. HỆ THỐNG ÂM THANH KHOA HỌC (WEB AUDIO API) ====================
+  let audioCtx = null;
+  let masterGain = null;
+  let bgmPlaying = false;
+  let rainPlaying = false;
+  let bgmInterval = null;
+  let rainNode = null;
+  let masterVol = 0.5;
+
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = masterVol;
+      masterGain.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }
+
+  function setMasterVolume(val) {
+    masterVol = parseFloat(val);
+    if (masterGain) masterGain.gain.value = masterVol;
+  }
+
+  function toggleBGM() {
+    initAudio();
+    const btn = document.getElementById('btn-bgm');
+    const label = document.getElementById('bgm-label');
+    if (!bgmPlaying) {
+      bgmPlaying = true;
+      btn.classList.add('active-audio');
+      label.textContent = 'Đang phát nhạc';
+      startAmbientBGM();
+    } else {
+      bgmPlaying = false;
+      btn.classList.remove('active-audio');
+      label.textContent = 'Bật âm thanh';
+      clearInterval(bgmInterval);
+    }
+  }
+
+  function startAmbientBGM() {
+    const chords = [
+      [261.63, 329.63, 392.00, 493.88],
+      [174.61, 220.00, 261.63, 329.63],
+      [220.00, 261.63, 329.63, 392.00],
+      [196.00, 246.94, 293.66, 329.63]
+    ];
+    let step = 0;
+
+    const playChord = () => {
+      if (!bgmPlaying || !audioCtx) return;
+      const now = audioCtx.currentTime;
+      const chord = chords[step % chords.length];
+      chord.forEach(freq => {
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.035, now + 1.2);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 4.2);
+        osc.connect(g);
+        g.connect(masterGain);
+        osc.start(now);
+        osc.stop(now + 4.3);
+      });
+      step++;
+    };
+
+    playChord();
+    bgmInterval = setInterval(playChord, 4000);
+  }
+
+  function toggleRainSFX() {
+    initAudio();
+    const btn = document.getElementById('btn-rain-sfx');
+    if (!rainPlaying) {
+      rainPlaying = true;
+      btn.classList.add('active-audio');
+      const bufferSize = 2 * audioCtx.sampleRate;
+      const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      let lastOut = 0.0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        output[i] = (lastOut + (0.02 * white)) / 1.02;
+        lastOut = output[i];
+        output[i] *= 0.45;
+      }
+      rainNode = audioCtx.createBufferSource();
+      rainNode.buffer = noiseBuffer;
+      rainNode.loop = true;
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 650;
+
+      const rainGain = audioCtx.createGain();
+      rainGain.gain.value = 0.14;
+
+      rainNode.connect(filter);
+      filter.connect(rainGain);
+      rainGain.connect(masterGain);
+      rainNode.start();
+    } else {
+      rainPlaying = false;
+      btn.classList.remove('active-audio');
+      if (rainNode) {
+        rainNode.stop();
+        rainNode.disconnect();
+        rainNode = null;
+      }
+    }
+  }
+
+  function playTransitionSound() {
+    if (!bgmPlaying || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(520, now);
+    osc.frequency.exponentialRampToValueAtTime(780, now + 0.12);
+    g.gain.setValueAtTime(0.03, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.16);
+  }
+
+  // ==================== 3. BIỂU ĐỒ KHÍ HẬU (CHART.JS) ====================
+  const months12 = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12'];
+  const chartInstances = {};
+
+  function createClimateChart(canvasId, tempArr, rainArr) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    if (chartInstances[canvasId]) {
+      chartInstances[canvasId].destroy();
+    }
+
+    chartInstances[canvasId] = new Chart(ctx, {
+      data: {
+        labels: months12,
+        datasets: [
+          {
+            type: 'line',
+            label: 'Nhiệt độ (°C) - Mốc báo cáo',
+            data: tempArr,
+            borderColor: '#fb923c',
+            backgroundColor: '#fb923c',
+            borderWidth: 3,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            spanGaps: true,
+            borderDash: [5, 4],
+            tension: 0.35,
+            yAxisID: 'yTemp'
+          },
+          {
+            type: 'bar',
+            label: 'Lượng mưa (mm) - Mốc báo cáo',
+            data: rainArr,
+            backgroundColor: rainArr.map(v => (v && v >= 200) ? 'rgba(56, 189, 248, 0.85)' : 'rgba(56, 189, 248, 0.45)'),
+            borderColor: '#38bdf8',
+            borderWidth: 1.5,
+            borderRadius: 6,
+            yAxisID: 'yRain'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 1100, easing: 'easeOutQuart' },
+        plugins: {
+          legend: {
+            labels: { color: '#e2e8f0', font: { family: 'Be Vietnam Pro', size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                if (context.raw === null) return 'Chưa có số liệu tháng này';
+                const unit = context.dataset.yAxisID === 'yTemp' ? '°C' : ' mm';
+                return `${context.dataset.label}: ${context.raw}${unit}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#cbd5e1', font: { weight: '600' } },
+            grid: { color: 'rgba(255,255,255,0.06)' }
+          },
+          yTemp: {
+            type: 'linear',
+            position: 'left',
+            min: 10,
+            max: 35,
+            title: { display: true, text: 'Nhiệt độ (°C)', color: '#fdba74', font: { size: 11, weight: 'bold' } },
+            ticks: { color: '#fdba74' },
+            grid: { color: 'rgba(255,255,255,0.06)' }
+          },
+          yRain: {
+            type: 'linear',
+            position: 'right',
+            min: 0,
+            max: 360,
+            title: { display: true, text: 'Lượng mưa (mm)', color: '#7dd3fc', font: { size: 11, weight: 'bold' } },
+            ticks: { color: '#7dd3fc' },
+            grid: { drawOnChartArea: false }
+          }
+        }
+      }
+    });
+  }
+
+  function renderChartForSlide(slideNum) {
+    if (slideNum === 3) {
+      createClimateChart('chart-slide-3',
+        [null, 16, null, null, null, null, 29, null, null, null, null, null],
+        [null, null, null, null, null, 210, 230, 300, 210, null, null, 10]
+      );
+    } else if (slideNum === 5) {
+      createClimateChart('chart-slide-5',
+        [17.5, null, null, null, null, 29.8, 29.8, null, null, null, null, null],
+        [null, null, null, null, null, 210, 230, 300, 210, null, null, 20]
+      );
+    } else if (slideNum === 6) {
+      createClimateChart('chart-slide-6',
+        [null, null, null, null, null, null, null, null, null, null, null, null],
+        [null, null, null, null, null, null, null, 300, null, null, null, 20]
+      );
+    } else if (slideNum === 7) {
+      createClimateChart('chart-slide-7',
+        [null, 16, null, null, null, null, 29, null, null, null, null, null],
+        [null, null, null, null, null, 210, 240, 310, 210, null, null, 15]
+      );
+    } else if (slideNum === 8) {
+      createClimateChart('chart-slide-8',
+        [16, null, null, null, null, null, 29, null, null, null, null, null],
+        [null, null, null, null, null, 210, 230, 300, 210, null, null, 10]
+      );
+    } else if (slideNum === 9) {
+      createClimateChart('chart-slide-9',
+        [null, 17, null, null, null, 29, null, null, null, null, null, null],
+        [null, null, null, null, null, 210, 240, 310, 210, null, null, 20]
+      );
+    } else if (slideNum === 10) {
+      createClimateChart('chart-slide-10',
+        [16.5, null, null, null, null, 29.5, 29.5, null, null, null, null, null],
+        [null, null, null, null, null, 210, 240, 315, 210, null, null, 18]
+      );
+    } else if (slideNum === 11) {
+      createClimateChart('chart-slide-11',
+        [17, null, null, null, null, 30, 30, null, null, null, null, null],
+        [35, 35, null, null, null, 210, 240, 305, 210, null, null, null]
+      );
+    } else if (slideNum === 12 || slideNum === 13) {
+      createClimateChart(`chart-slide-${slideNum}`,
+        [16.5, 16.5, null, null, null, 29.5, 29.5, null, null, null, null, null],
+        [20, 20, null, null, null, 215, 245, 310, 215, null, null, 15]
+      );
+    }
+  }
+
+  // ==================== 4. CHUYỂN ĐỔI MÙA Ở SLIDE 13 ====================
+  function switchSeasonView(season) {
+    const card = document.getElementById('season-compare-card');
+    const title = document.getElementById('season-title');
+    const desc = document.getElementById('season-desc');
+    const btnSum = document.getElementById('btn-summer');
+    const btnWin = document.getElementById('btn-winter');
+
+    if (season === 'summer') {
+      card.style.borderColor = '#fb923c';
+      card.style.background = 'linear-gradient(135deg, rgba(251,146,60,0.2), rgba(13,30,54,0.85))';
+      title.style.color = '#fdba74';
+      title.textContent = '☀ HÀ NỘI MÙA HẠ (THÁNG 5 – THÁNG 10)';
+      desc.textContent = 'Nắng nóng gay gắt (đỉnh điểm 29–30°C vào T6–T7), độ ẩm cao, mưa rào và dông tập trung mạnh nhất từ tháng 6 đến tháng 9 (đạt 300–320 mm vào tháng 8).';
+      btnSum.style.background = 'rgba(251,146,60,0.25)';
+      btnSum.style.borderColor = '#fb923c';
+      btnWin.style.background = 'rgba(255,255,255,0.08)';
+      btnWin.style.borderColor = 'rgba(255,255,255,0.12)';
+    } else {
+      card.style.borderColor = '#38bdf8';
+      card.style.background = 'linear-gradient(135deg, rgba(56,189,248,0.2), rgba(13,30,54,0.85))';
+      title.style.color = '#7dd3fc';
+      title.textContent = '❄ HÀ NỘI MÙA ĐÔNG (THÁNG 11 – THÁNG 4)';
+      desc.textContent = 'Chịu ảnh hưởng gió mùa Đông Bắc nên trời lạnh (thấp nhất 16–18°C vào tháng 1–2), lượng mưa thấp (chỉ khoảng 10–20 mm vào tháng 12).';
+      btnWin.style.background = 'rgba(56,189,248,0.25)';
+      btnWin.style.borderColor = '#38bdf8';
+      btnSum.style.background = 'rgba(255,255,255,0.08)';
+      btnSum.style.borderColor = 'rgba(255,255,255,0.12)';
+    }
+  }
+
+  // ==================== 5. HỆ THỐNG VIDEO MÔ PHỎNG KHÍ TƯỢNG 60FPS ====================
+  const simState = {};
+
+  function drawWeatherScene(ctx, w, h, mode, t) {
+    ctx.clearRect(0, 0, w, h);
+
+    if (mode === 'summer_sun') {
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#0284c7');
+      grad.addColorStop(0.6, '#38bdf8');
+      grad.addColorStop(1, '#fef08a');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Mặt trời tỏa nắng
+      const sunX = w * 0.78, sunY = h * 0.28;
+      ctx.fillStyle = 'rgba(253, 224, 71, 0.25)';
+      ctx.beginPath();
+      ctx.arc(sunX, sunY, 45 + Math.sin(t * 2) * 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(sunX, sunY, 26, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Đường chân trời Hà Nội (Hồ Tây / Hồ Gươm)
+      ctx.fillStyle = '#0369a1';
+      ctx.fillRect(0, h * 0.72, w, h * 0.28);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(w * 0.12, h * 0.56, 26, h * 0.16);
+      ctx.fillRect(w * 0.18, h * 0.50, 34, h * 0.22);
+      ctx.fillRect(w * 0.26, h * 0.58, 22, h * 0.14);
+    } else if (mode === 'summer_rain' || mode === 'storm_clouds') {
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(1, '#1e293b');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Tia chớp nếu là dông bão
+      if (mode === 'storm_clouds' && Math.sin(t * 7) > 0.94) {
+        ctx.fillStyle = 'rgba(254, 240, 138, 0.28)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(w * 0.5, 25);
+        ctx.lineTo(w * 0.46, 70);
+        ctx.lineTo(w * 0.53, 75);
+        ctx.lineTo(w * 0.48, 130);
+        ctx.stroke();
+      }
+
+      // Mây đen
+      ctx.fillStyle = '#334155';
+      for (let i = 0; i < 6; i++) {
+        const cx = ((i * 95 + t * 18) % (w + 100)) - 50;
+        ctx.beginPath();
+        ctx.arc(cx, 32, 34, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Hạt mưa rơi
+      ctx.strokeStyle = 'rgba(125, 211, 252, 0.75)';
+      ctx.lineWidth = 1.6;
+      for (let i = 0; i < 65; i++) {
+        const rx = (i * 37 + t * 90) % w;
+        const ry = (i * 29 + t * 340) % h;
+        ctx.beginPath();
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - 4, ry + 14);
+        ctx.stroke();
+      }
+    } else if (mode === 'winter_mist') {
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#334155');
+      grad.addColorStop(0.6, '#64748b');
+      grad.addColorStop(1, '#94a3b8');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Sương mù & gió lạnh
+      ctx.strokeStyle = 'rgba(241, 245, 249, 0.45)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 6; i++) {
+        const y = 35 + i * 24;
+        const offset = Math.sin(t * 2 + i) * 30;
+        ctx.beginPath();
+        ctx.moveTo(30 + offset, y);
+        ctx.bezierCurveTo(w * 0.35, y - 10, w * 0.65, y + 10, w - 40 + offset, y);
+        ctx.stroke();
+      }
+    } else if (mode === 'meteo_station') {
+      ctx.fillStyle = '#081a30';
+      ctx.fillRect(0, 0, w, h);
+
+      // Lều khí tượng & Nhiệt kế + Vũ kế
+      const tx = w * 0.32, ty = h * 0.2;
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(tx - 10, ty, 20, h * 0.55);
+      const level = (Math.sin(t * 1.5) * 0.5 + 0.5) * (h * 0.42);
+      ctx.fillStyle = '#f43f5e';
+      ctx.fillRect(tx - 6, ty + h * 0.52 - level, 12, level);
+
+      // Vũ kế đo mưa bên phải
+      const rx = w * 0.65;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.strokeRect(rx - 18, ty + 10, 36, h * 0.48);
+      const rainLvl = (Math.cos(t * 1.2) * 0.5 + 0.5) * (h * 0.38);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.65)';
+      ctx.fillRect(rx - 16, ty + 10 + h * 0.48 - rainLvl, 32, rainLvl);
+
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '12px Be Vietnam Pro';
+      ctx.fillText('Nhiệt kế (°C)', tx - 34, ty + h * 0.68);
+      ctx.fillText('Vũ kế (mm)', rx - 30, ty + h * 0.68);
+    }
+  }
+
+  const videoConfigs = [
+    { id: 'sim-video-slide4', mode: 'summer_rain' },
+    { id: 'sim-video-slide10', mode: 'storm_clouds' },
+    { id: 'gal-vid-1', mode: 'summer_sun' },
+    { id: 'gal-vid-2', mode: 'summer_rain' },
+    { id: 'gal-vid-3', mode: 'winter_mist' },
+    { id: 'gal-vid-4', mode: 'storm_clouds' },
+    { id: 'gal-vid-5', mode: 'meteo_station' }
+  ];
+
+  videoConfigs.forEach(cfg => {
+    simState[cfg.id] = { paused: false, mode: cfg.mode };
+  });
+
+  function toggleSimVideo(id, btn) {
+    if (!simState[id]) return;
+    simState[id].paused = !simState[id].paused;
+    btn.innerHTML = simState[id].paused
+      ? '<i data-lucide="play" style="width:13px;"></i>'
+      : '<i data-lucide="pause" style="width:13px;"></i>';
+    lucide.createIcons();
+  }
+
+  let modalMode = null;
+  function openVideoModal(mode, title) {
+    modalMode = mode;
+    document.getElementById('modal-video-title').textContent = title;
+    document.getElementById('video-modal').classList.add('open');
+  }
+
+  function closeVideoModal() {
+    document.getElementById('video-modal').classList.remove('open');
+    modalMode = null;
+  }
+
+  // Vòng lặp Animation 60fps
+  let startTime = performance.now();
+  function animateAllVideos(now) {
+    const t = (now - startTime) / 1000;
+    videoConfigs.forEach(cfg => {
+      if (simState[cfg.id] && !simState[cfg.id].paused) {
+        const c = document.getElementById(cfg.id);
+        if (c) drawWeatherScene(c.getContext('2d'), c.width, c.height, cfg.mode, t);
+      }
+    });
+
+    if (modalMode) {
+      const mc = document.getElementById('modal-sim-canvas');
+      if (mc) drawWeatherScene(mc.getContext('2d'), mc.width, mc.height, modalMode, t);
+    }
+    requestAnimationFrame(animateAllVideos);
+  }
+  requestAnimationFrame(animateAllVideos);
+
+  // Khởi tạo slide 1
+  updateSlideUI();
+</script>
+</body>
+</html>
